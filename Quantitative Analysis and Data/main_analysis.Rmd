@@ -1,0 +1,948 @@
+---
+title: "Main Analysis Book for ADHD Programmers Project"
+output: html_notebook
+author: "A1"
+date: "2024-06-25"
+---
+
+```{r}
+source("standard_cleaning.R")
+nrow(data)
+
+# Drop Q73_5 -- it was not answered by anyone
+data = subset(data, select = -Q73_5)
+
+# Make task competency be numeric
+data[116:122] = lapply(data[116:122], function(x) as.numeric(x))
+```
+
+# Change levels of group so we're comparing to NT people
+```{r}
+tmp = subset(data, data$group == "ADHD")
+tmp2 = subset(data, data$group == "NT")
+
+mean(as.numeric(tmp$distract_1), na.rm = T)
+mean(as.numeric(tmp2$distract_1), na.rm = T)
+
+levels(data$group)
+
+data$group = relevel(data$group, ref = "NT")
+levels(data$group)
+
+tmp = subset(data, data$group == "ADHD")
+tmp2 = subset(data, data$group == "NT")
+
+mean(as.numeric(tmp$distract_1), na.rm = T)
+mean(as.numeric(tmp2$distract_1), na.rm = T)
+```
+# Neurotypes
+```{r}
+# Here we will make a table that breaks down what neurotypes everyone has and what they are
+which(colnames(data) == "Q3_1")
+which(colnames(data) == "Q3_12")
+
+neurotypes = data.frame("neurotype" = character(0),
+                        "number" = numeric(0))
+
+for (i in 20:29) {
+  curr_subset = na.omit(data[i])
+  print(curr_subset[[1, 1]])
+  print(nrow(curr_subset))
+  new.row = data.frame(neurotype = curr_subset[[1, 1]],
+             number = nrow(curr_subset))
+  neurotypes = rbind(neurotypes, new.row)
+}
+
+neurotypes
+neurotypes = xtable(neurotypes)
+print(neurotypes, file = "neurotypes.tex", include.rownames = FALSE)
+
+# Below we check for the number of AuDHD people
+audhd = subset(data, group == "ADHD" & Q3_4 == "Autism")
+nrow(audhd)
+```
+
+# Demographics
+```{r}
+counts = table(data$region)
+pie(counts, main = "Region Breakdown", col = rainbow(length(counts)))
+counts_df <- as.data.frame(counts)
+counts_df <- counts_df[order(-counts_df$Freq), ]
+print(counts_df)
+
+# Find number of unique countries
+country_num = length(unique(data$country))
+print(as.data.frame(table(data$country)))
+print(paste("Number of unique countries: ", country_num))
+
+# Age range and average age: Q71
+print("Age:")
+summary(as.numeric(data$age))
+# Min: 18, max: 64, mean: 32.43
+print("Age median:")
+median(as.numeric(data$age), na.rm = TRUE)
+
+# Years of experience: Q9
+print("Years of experience:")
+summary(as.numeric(data$yoe))
+# Min: 0, max: 40, mean: 10.44
+print("YOE median:")
+median(as.numeric(data$yoe), na.rm = TRUE)
+
+# Gender
+genderct = as.data.frame(table(data$gender))
+genderct = genderct[order(-genderct$Freq), ]
+
+# Make table of gender + neurotype
+gender_neurotype_table = table(data$gender, data$group)
+gender_neurotype_table = as.data.frame(gender_neurotype_table)
+gender_neurotype_table
+
+# Ascertain that there is one person who did not answer gender who is non-ADHD ND
+sset = subset(data, group == "ND non-ADHD" & is.na(gender))
+print(sset)
+
+# Add percentages as another column.
+total = sum(genderct$Freq)
+genderct$Percentage = (genderct$Freq / total) * 100
+genderct
+
+# General group numbers
+groupct = as.data.frame(table(data$group))
+groupct = groupct[order(-groupct$Freq), ]
+total = sum(groupct$Freq)
+groupct$Percentage = (groupct$Freq / total) * 100
+groupct
+
+# ageofadhd_realization is knowing you have ADHD in childhood/adulthood.
+diagage = as.data.frame(table(data$ageofadhd_realization))
+diagage = diagage[diagage$Var1 != "", ]
+total = sum(diagage$Freq)
+diagage$Percentage = (diagage$Freq / total) * 100
+diagage
+
+# How many of the Other ND group are autistic?
+othernd = subset(data, group == "ND non-ADHD")
+print("Num autistic in Other ND group:")
+num = nrow(subset(othernd, Q3_4 == "Autism"))
+print(num)
+print("Percentage autistic in Other ND group:")
+num / 60
+
+# Brief context on job title
+jobtitle = as.data.frame(table(data$job_title))
+jobtitle = jobtitle[order(-jobtitle$Freq), ]
+jobtitle
+total = sum(jobtitle$Freq)
+239 + 58
+print("Percentage of Software Engineer or Software Developer:")
+297 / total
+
+# Q8 is diagnosis reason
+diagreason = as.data.frame(table(data$Q8))
+diagreason = diagreason[order(-diagreason$Freq), ]
+diagreason
+total = sum(diagreason$Freq)
+77 / total
+44 / total
+```
+# Factor Analysis --> Not in paper
+```{r}
+# Plan: try factor analysis. If the questions don't clump neatly, try generating all the models and correcting p-values. 
+
+which(colnames(data) == "distract_1")
+which(colnames(data) == "distract_7")
+
+challenge_factors = data[, 53:59]
+# cbind together other challenges of data
+which(colnames(data) == "Q55_1")
+which(colnames(data) == "Q60_7")
+
+# The next few are one-offs/not conceptually related, so I don't want to put them into the analysis.
+
+tmp = data[, 64:91]
+challenge_factors = cbind(challenge_factors, tmp)
+
+numeric_challenges = data.frame(lapply(challenge_factors, function(x) as.numeric(as.character(x))))
+clean = na.omit(numeric_challenges)
+nrow(clean)
+
+fact_model = factanal(x = clean, factors = 5)
+fact_model
+
+# It seems like Question 60 and 53 (memory and time management) load together, but I'm hesitant to say the other ones do. Let's make (proportional odds) models for all of them.
+```
+```{r}
+# Finding indices for challenges we will be modeling in the next cell
+
+which(colnames(data) == "distract_1")
+which(colnames(data) == "best.tasks._7")
+which(colnames(data) == "best.tasks._4")
+which(colnames(data) == "Q55_1")
+which(colnames(data) == "Q55_7")
+which(colnames(data) == "Q73_2") # code review
+which(colnames(data) == "Q73_8")
+
+which(colnames(data) == "Q53_1")
+which(colnames(data) == "Q60_7")
+
+levels(data$best.tasks._1)
+levels(data$distract_1)
+```
+
+
+# Challenge Modeling By Software Task
+```{r}
+# Factors to put in polr formula: competency at task, group, yoe, pmh, wfh_status
+
+challenges_df = data.frame(challenge = character(),
+                           can_use = logical(),
+                           adhdp = numeric(),
+                           ndp = numeric(),
+                           yoep = numeric(),
+                           pmhp = numeric(),
+                           hybridp = numeric(),
+                           wfhp = numeric(),
+                           compp = numeric(),
+                           coef_adhd = numeric(),
+                           coef_nd = numeric(),
+                           coef_yoe = numeric(),
+                           coef_pmh = numeric(),
+                           coef_hybrid = numeric(),
+                           coef_wfh = numeric(),
+                           coef_comp = numeric())
+
+comp_i = 116 # This is the index of best.tasks._1, or perceived competency at code review.
+
+for (i in 53:59) {
+  # Add task competency as a predictor to the formula by passing it into the function
+  task_competency = colnames(data)[comp_i]
+  challenges_df = add_polr_row(data, challenges_df, i, task_competency)
+  comp_i = comp_i + 1
+}
+
+comp_i = 116
+
+for (i in 64:70) {
+  task_competency = colnames(data)[comp_i]
+  challenges_df = add_polr_row(data, challenges_df, i, task_competency)
+  comp_i = comp_i + 1
+}
+
+# Skip an index for best.tasks._4 -- 119 -- because that is meetings, which we don't ask about when it comes to "having trouble starting or continuing tasks" because it didn't make sense.
+
+comp_i = 116
+
+for (i in 72:77) {
+  task_competency = colnames(data)[comp_i]
+  challenges_df = add_polr_row(data, challenges_df, i, task_competency)
+  if (comp_i == 118) {
+    comp_i = comp_i +2
+    next
+  }
+  comp_i = comp_i + 1
+}
+
+comp_i = 116
+
+for (i in 78:91) {
+  task_competency = colnames(data)[comp_i]
+  challenges_df = add_polr_row(data, challenges_df, i, task_competency)
+  if (comp_i == 122) {
+    comp_i = 116
+    next
+  }
+  comp_i = comp_i + 1
+}
+
+challenges_df
+
+# Make a dataframe that's just the p values, then unlist and do BH correction and cat onto og dataframe
+p_val_challenges = challenges_df[3:9]
+p_val_challenges
+
+# Combine all p-values into a single vector
+all_pvalues = unlist(p_val_challenges)
+
+# Apply BH correction to the combined p-values
+all_pvalues_corrected = p.adjust(all_pvalues, method = "BH")
+
+# Reshape the corrected p-values back into the original dataframe
+df_corrected = as.data.frame(matrix(all_pvalues_corrected, nrow = nrow(p_val_challenges), byrow = FALSE))
+colnames(df_corrected) = c("adhdp_adjusted", "ndp_adjusted", "yoep_adjusted", "pmhp_adjusted", "hybridp_adjusted", "wfhp_adjusted", "compp_adjusted")
+
+challenges_df = cbind(challenges_df, df_corrected)
+challenges_df # Now has adjusted p_values side by side
+
+```
+
+# Identifying which are significant
+```{r}
+sig1 = which(challenges_df$adhdp_adjusted < .05)
+sig1 = challenges_df$challenge[sig1]
+sig1
+```
+
+
+# Other Broad Challenge Questions
+```{r}
+# Go through last few challenges questions. Q56 and 57 are context switching and communication. 58 is ease of development environment. 89 is preferred interview types (chi square test). 91 is standup effects. 92 is pair programming effects. 94 is waiting for things, 95 is version control ease (git ease). 
+
+challenges_broad_df = data.frame(challenge = character(),
+                           can_use = logical(),
+                           adhdp = numeric(),
+                           ndp = numeric(),
+                           yoep = numeric(),
+                           pmhp = numeric(),
+                           hybridp = numeric(),
+                           wfhp = numeric(),
+                           coef_adhd = numeric(),
+                           coef_nd = numeric(),
+                           coef_yoe = numeric(),
+                           coef_pmh = numeric(),
+                           coef_hybrid = numeric(),
+                           coef_wfh = numeric())
+
+which(colnames(data) == "context_switching")
+which(colnames(data) == "Q58")
+which(colnames(data) == "Q91_1")
+which(colnames(data) == "Q92_1")
+which(colnames(data) == "wait_compile")
+
+# Context switching
+challenges_broad_df = add_polr_row(data, challenges_broad_df, 92, NULL)
+# Communication
+challenges_broad_df = add_polr_row(data, challenges_broad_df, 93, NULL)
+# Ease of development environment
+challenges_broad_df = add_polr_row(data, challenges_broad_df, 95, NULL)
+
+# Effects of standup on productivity, quality, and wellbeing
+for (i in 103:105) {
+  challenges_broad_df = add_polr_row(data, challenges_broad_df, i, NULL)
+}
+
+# Effects of pair programming on productivity, quality, and wellbeing
+for (i in 107:109) {
+  challenges_broad_df = add_polr_row(data, challenges_broad_df, i, NULL)
+}
+
+# Waiting for things to compile
+challenges_broad_df = add_polr_row(data, challenges_broad_df, 110, NULL)
+# Ease with version control
+challenges_broad_df = add_polr_row(data, challenges_broad_df, 111, NULL)
+
+# Make a dataframe that's just the p values, then unlist and do BH correction and cat onto og dataframe
+p_val_challenges = challenges_broad_df[3:8]
+p_val_challenges
+
+# Combine all p-values into a single vector
+all_pvalues = unlist(p_val_challenges)
+
+# Apply BH correction to the combined p-values
+all_pvalues_corrected = p.adjust(all_pvalues, method = "BH")
+
+# Reshape the corrected p-values back into the original dataframe
+df_corrected = as.data.frame(matrix(all_pvalues_corrected, nrow = nrow(p_val_challenges), byrow = FALSE))
+colnames(df_corrected) = c("adhdp_adjusted", "ndp_adjusted", "yoep_adjusted", "pmhp_adjusted", "hybridp_adjusted", "wfhp_adjusted")
+
+challenges_broad_df = cbind(challenges_broad_df, df_corrected)
+challenges_broad_df # Now has adjusted p_values side by side
+
+```
+# Identifying which are significant
+```{r}
+sig1 = which(challenges_broad_df$adhdp_adjusted < .05)
+sig1 = challenges_broad_df$challenge[sig1]
+sig1
+```
+
+# Getting medians of frequencies for major challenge/task pairs for each group
+```{r}
+# Q60_4 Memory and meetings
+# Q55_5 Abstraction and design
+# Q53_5 Time management and design
+# Q73_8 Consistent performance and writing documentation
+# distract_4 Distractions and meetings
+# Q63 Boring tasks
+# Q57 Communication
+medians_to_get = c("Q60_4", "Q55_5", "Q53_5", "Q73_8", "distract_4", "Q63", "Q57")
+
+medians_to_get = match(medians_to_get, names(data))
+print(medians_to_get)
+names(data)[88]
+medians_to_get = as.numeric(medians_to_get)
+
+medians_table = data.frame(challenge = character(),
+                           adhd_median = numeric(),
+                           nd_median = numeric(),
+                           nt_median = numeric())
+
+for (colname in medians_to_get) {
+  adhd_med = median(as.numeric(unlist(subset(data, group == "ADHD")[colname])), na.rm = TRUE)
+  nd_med = median(as.numeric(unlist(subset(data, group == "ND non-ADHD")[colname])), na.rm = TRUE)
+  nt_med = median(as.numeric(unlist(subset(data, group == "NT")[colname])), na.rm = TRUE)
+  new.row = data.frame(challenge = names(data)[colname],
+                       adhd_median = adhd_med,
+                       nd_median = nd_med,
+                       nt_median = nt_med)
+  medians_table = rbind(medians_table, new.row)
+}
+
+# On a scale from 1 to 5
+medians_table
+
+# Write the dataframe to a CSV file
+write.csv(medians_table, file = "challenge_medians.csv", row.names = FALSE)
+```
+
+# Making Strategy Usage Table
+```{r}
+which(colnames(data) == "strats_1")
+which(colnames(data) == "strats_21")
+
+strategy_table = data.frame(character(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0))
+colnames(strategy_table) = c("col.name", "adhd.chose", "nd.chose", "nt.chose", "total.chose", "percent.adhd", "percent.nd", "percent.nt", "percent.total")
+# num_adhd, num_nd_nonadhd, num_nt, total_people
+num_adhd = nrow(subset(data, group == "ADHD"))
+print(num_adhd)
+num_nd_nonadhd = nrow(subset(data, group == "ND non-ADHD"))
+print(num_nd_nonadhd)
+num_nt = nrow(subset(data, group == "NT"))
+print(num_nt)
+add_freq_row
+total_people = nrow(data)
+print(total_people)
+for (i in 133:150) {
+  strategy_table = add_freq_row(strategy_table, i, num_adhd, num_nd_nonadhd, num_nt, total_people)
+}
+
+strategy_table = strategy_table[order(-strategy_table$percent.total), ]
+strategy_table
+
+strategy_table = strategy_table[, c("col.name", "percent.adhd", "percent.nd", "percent.nt", "percent.total")]
+names(strategy_table)
+# Reorder columns by specifying the desired order
+strategy_table = strategy_table[, c("col.name", "percent.total", "percent.adhd", "percent.nd", "percent.nt")]
+
+for (i in 2:5) {
+  # Turn each column numeric, then round it to the nearest whole number
+  strategy_table[, i] = as.numeric(strategy_table[, i])
+  strategy_table[, i] = paste0(round(strategy_table[, i]), "%")
+}
+
+strategy_table
+
+# Print to LaTeX 
+strategy_table = xtable(strategy_table)
+print(strategy_table, file = "strat_latexdemo.tex", include.rownames = FALSE)
+```
+
+# Strategy Chi-squared Tests for Independence Between Usages
+```{r}
+# Per strategy, see if participants of different neurotypes differ significantly in their usage using Chi-squared tests
+
+chisq_strats = data.frame(character(0),
+                          numeric(0),
+                          numeric(0))
+colnames(chisq_strats) = c("strat", "og.p.value", "adjusted.p.value")
+for (i in 133:150) {
+  has_strat = ifelse(!is.na(data[i]), TRUE, FALSE)
+  table = table(data$group, has_strat)
+  result = chisq.test(table)
+
+  print(colnames(data)[i])
+  print(result)
+  print(result$stdres)
+  
+  new.row = data.frame(strat = colnames(data)[i],
+                       og.p.value = result$p.value,
+                       adjusted.p.value = 0)
+  chisq_strats = rbind(chisq_strats, new.row)
+}
+og_indices = which(chisq_strats$og.p.value < .05)
+print(og_indices)
+og_significant = chisq_strats[og_indices, 1]
+print(og_significant)
+
+# Correcttt them
+chisq_strats$adjusted.p.value = p.adjust(chisq_strats$og.p.value, method = "BH")
+
+post_indices = which(chisq_strats$adjusted.p.value < .05)
+post_significant = chisq_strats[post_indices, 1]
+print(post_significant)
+
+print(chisq_strats[chisq_strats$strat == "strats_7", ])
+```
+
+# Accommodation Tables
+```{r}
+
+# Can do similar chart/Chi-squared as the strategy section. If the selection numbers are low, ignore chi-squared tests and just have total numbers/charts
+which(colnames(data) == "acc.want._1")
+which(colnames(data) == "acc.want._11")
+
+acc_want_table = data.frame(character(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0))
+colnames(acc_want_table) = c("col.name", "adhd.chose", "nd.chose", "nt.chose", "total.chose", "percent.adhd", "percent.nd", "percent.nt", "percent.total")
+
+# Create data frame to work with that does not include people who did not answer the acc_want question to calculate proper percentages.
+# Define the indices of the columns to check
+columns_to_check = c(250, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260)
+
+# Check rows where all specified columns are NA
+all_na_rows = apply(data[, columns_to_check], 1, function(row) all(is.na(row)))
+
+# Get the indices of rows where all specified columns are NA
+rows_to_drop = which(all_na_rows)
+
+# Drop the specified rows
+want_data = data[-rows_to_drop, ]
+ct = as.data.frame(table(want_data$group))
+  
+  print(ct)
+  print(names(ct))
+  
+  num_adhd = ct$Freq[1]
+  print(num_adhd)
+  num_nd_nonadhd = ct$Freq[2]
+  print(num_nd_nonadhd)
+  num_nt = ct$Freq[3]
+  print(num_nt)
+  ttl = num_adhd + num_nd_nonadhd + num_nt
+  
+for (i in 250:260) {
+  acc_want_table = add_freq_row(acc_want_table, i, num_adhd, num_nd_nonadhd, num_nt, ttl)
+}
+
+acc_want_table = acc_want_table[order(-acc_want_table$percent.total), ]
+acc_want_table
+
+columns_to_check = c(262, 263, 264, 265, 266, 267, 268, 269, 270, 271, 272)
+# Check rows where all specified columns are NA
+all_na_rows = apply(data[, columns_to_check], 1, function(row) all(is.na(row)))
+
+# Get the indices of rows where all specified columns are NA
+rows_to_drop = which(all_na_rows)
+
+# Drop the specified rows
+grant_data = data[-rows_to_drop, ]
+
+ct = as.data.frame(table(grant_data$group))
+  
+  print(ct)
+  print(names(ct))
+  
+  num_adhd = ct$Freq[1]
+  print(num_adhd)
+  num_nd_nonadhd = ct$Freq[2]
+  print(num_nd_nonadhd)
+  num_nt = ct$Freq[3]
+  print(num_nt)
+ttl = num_adhd + num_nd_nonadhd + num_nt
+which(colnames(data) == "acc.grant._1")
+which(colnames(data) == "acc.grant._11")
+
+
+acc_grant_table = data.frame(character(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0),
+                            numeric(0))
+colnames(acc_grant_table) = c("col.name", "adhd.chose", "nd.chose", "nt.chose", "total.chose", "percent.adhd", "percent.nd", "percent.nt", "percent.total")
+
+for (i in 262:272) {
+  acc_grant_table = add_freq_row(acc_grant_table, i, num_adhd, num_nd_nonadhd, num_nt, ttl)
+}
+
+acc_grant_table = acc_grant_table[order(-acc_grant_table$percent.total), ]
+acc_grant_table
+
+# Write subsets of both dfs to LaTeX tables.
+
+acc_want_table = acc_want_table[, c("col.name", "percent.adhd", "percent.nd", "percent.nt", "percent.total")]
+acc_grant_table = acc_grant_table[, c("col.name", "percent.adhd", "percent.nd", "percent.nt", "percent.total")]
+
+# Reorder columns by specifying the desired order
+acc_want_table = acc_want_table[, c("col.name", "percent.total", "percent.adhd", "percent.nd", "percent.nt")]
+acc_grant_table = acc_grant_table[, c("col.name", "percent.total", "percent.adhd", "percent.nd", "percent.nt")]
+
+for (i in 2:5) {
+  # Turn each column numeric, then round it to the nearest whole number
+  acc_want_table[, i] = as.numeric(acc_want_table[, i])
+  acc_grant_table[, i] = as.numeric(acc_grant_table[, i])
+  acc_want_table[, i] = paste0(round(acc_want_table[, i]), "%")
+  acc_grant_table[, i] = paste0(round(acc_grant_table[, i]), "%")
+}
+
+# Print to LaTeX
+acc_want_table = xtable(acc_want_table)
+acc_grant_table = xtable(acc_grant_table)
+print(acc_want_table, file = "acc_want.tex", include.rownames = FALSE)
+print(acc_grant_table, file = "acc_grant.tex", include.rownames = FALSE)
+```
+
+# Accommodations Chi-squared Tests
+```{r}
+# Per accommodation, see if participants of different neurotypes differ significantly in their usage using Chi-squared tests
+
+chisq_accwant = data.frame(character(0),
+                          numeric(0),
+                          numeric(0))
+colnames(chisq_accwant) = c("acc.want", "og.p.value", "adjusted.p.value")
+for (i in 250:260) {
+  has_acc = ifelse(!is.na(data[i]), TRUE, FALSE)
+  table = table(data$group, has_acc)
+  result = chisq.test(table)
+
+  print(colnames(data)[i])
+  print(result)
+  print(result$stdres)
+  
+  new.row = data.frame(acc.want = colnames(data)[i],
+                       og.p.value = result$p.value,
+                       adjusted.p.value = 0)
+  chisq_accwant = rbind(chisq_accwant, new.row)
+}
+og_indices = which(chisq_accwant$og.p.value < .05)
+print(og_indices)
+og_significant = chisq_accwant[og_indices, 1]
+print(og_significant)
+
+# Correcttt them
+chisq_accwant$adjusted.p.value = p.adjust(chisq_accwant$og.p.value, method = "BH")
+
+post_indices = which(chisq_accwant$adjusted.p.value < .05)
+post_significant = chisq_accwant[post_indices, 1]
+print(post_significant)
+
+# ADHD'ers were more likely to want accommodation 2 and 9
+
+chisq_accgrant = data.frame(character(0),
+                          numeric(0),
+                          numeric(0))
+colnames(chisq_accgrant) = c("acc.grant", "og.p.value", "adjusted.p.value")
+for (i in 262:272) {
+  has_acc = ifelse(!is.na(data[i]), TRUE, FALSE)
+  table = table(data$group, has_acc)
+  result = chisq.test(table)
+
+  print(colnames(data)[i])
+  print(result)
+  print(result$stdres)
+  
+  new.row = data.frame(acc.grant = colnames(data)[i],
+                       og.p.value = result$p.value,
+                       adjusted.p.value = 0)
+  chisq_accgrant = rbind(chisq_accgrant, new.row)
+}
+og_indices = which(chisq_accgrant$og.p.value < .05)
+print(og_indices)
+og_significant = chisq_accgrant[og_indices, 1]
+print(og_significant)
+
+# Correcttt them
+chisq_accgrant$adjusted.p.value = p.adjust(chisq_accgrant$og.p.value, method = "BH")
+
+post_indices = which(chisq_accgrant$adjusted.p.value < .05)
+post_significant = chisq_accgrant[post_indices, 1]
+print(post_significant)
+
+# There were no significant differences in accommodations developers had (or did not have) across the groups
+```
+
+
+# More Accommodations Questions --> Not in paper
+```{r}
+acc_possible = data.frame(table(data$acc.possible, data$group))
+acc_possible # This is for all participants. FIXME Show ADHD and total know/think it is possible. Breakdown those who don't know by region
+
+# Did ND people have to disclose their status for accommodations?
+required_disclose = data.frame(doc = sum(!is.na(data$no.yes.disc.acc._1)),
+                               told = sum(!is.na(data$no.yes.disc.acc._2)),
+                               no = sum(!is.na(data$no.yes.disc.acc._3)))
+required_disclose # Most ND people who disclosed did not have to disclose that they were ND to receive these accommodations, which is great.
+
+# Accommodation difficulty: take mean (interval data) and try making a table of accommodations that were granted vs. how difficult people think it is to receive one
+acc_difficulty = data.frame(table(data$acc.difficulty))
+acc_difficulty
+mean(as.numeric(data$acc.difficulty), na.rm = T) # 2.5, suggesting that people find it slightly difficult on average to receive an accommodation
+only_adhd = subset(data, group == "ADHD")
+mean(as.numeric(only_adhd$acc.difficulty), na.rm = T) # ADHD'ers find it ever so slightly more difficult on average
+
+# Origin of idea -- raw numbers or chi-squared test. 
+
+# Coworkers' reactions: bar charts to show where people are (stacked bar chart) or divide into positive vs. negative and do proportion z test. coouuld see how granted accommodations correlate, but probably messy
+# data$Q43 is coworker's reactions
+table(data$Q43)
+mean(data$Q43, na.rm = T) # 2.4, suggesting slightly more negative reactions from coworkers. Although most coworkers are neutral, non-normative differences can draw attention
+```
+
+
+# Strength Modeling
+```{r}
+# Factors that could reasonably affect strengths: yoe, group, pmh (self efficacy)
+sum(data$group == "ADHD")
+which(colnames(data) == "best.tasks._1")
+which(colnames(data) == "hyperfocus")
+
+strengths_df = data.frame(strat.name = character(),
+                           can_use = logical(),
+                           adhdp = numeric(),
+                           ndp = numeric(),
+                           yoep = numeric(),
+                           pmhp = numeric(),
+                           coef_adhd = numeric(),
+                           coef_nd = numeric(),
+                           coef_yoe = numeric(),
+                           coef_pmh = numeric())
+
+for (i in 116:126) {
+  colname = colnames(data)[i]
+  print(paste("THIS IS THE TEST: ", colname))
+  data[[i]] = ordered(data[[i]])
+  levels(data[[i]])
+  # Make formula into string using paste
+  # Simplest model
+  formula = paste(colname, "~ group + yoe + pmh_avg")
+  m = polr(formula, data = data, Hess = TRUE, na.action = na.omit)
+  
+  # Extract coefficients
+  coefficients = coef(m)
+  
+  # Calculate odds ratios for each coefficient -- basically an effect size for how much sway each predictor has on the response variable. Increase by 1, or from reference value, indicates the likelihood of increasing the response
+  # variable by one level by [odds ratio] times (> 1 value means more likely to be higher, < 1 equals more likely to be lower on the scale)
+  odds_ratios = exp(coefficients)
+  odds_ratio_df = as.data.frame(t(odds_ratios))
+  colnames(odds_ratio_df) = c("coef_adhd", "coef_nd", "coef_yoe", "coef_pmh")
+  
+  # Check prop odds assumption
+  br = brant(m)
+  summary(br)
+  
+  omnibus = br[1, 3]
+  
+  # Check to see if the polr model is appropriate and keep that as data in the dataframe
+  brant_pass = omnibus > .05
+
+  # Extract z-values from the summary
+  summary_polr = summary(m)
+  z_values = summary_polr$coefficients[, "t value"]
+
+  # Calculate p-values
+  p_values = 2 * pnorm(-abs(z_values))
+  p_values = p_values[1:4]
+  print(p_values)
+  print(confint(m))
+  new.row = data.frame(strat.name = colname,
+                       can_use = brant_pass,
+                       adhdp = p_values[1],
+                       ndp = p_values[2],
+                       yoep = p_values[3],
+                       pmhp = p_values[4])
+  new.row = cbind(new.row, odds_ratio_df)
+  strengths_df = rbind(strengths_df, new.row)
+}
+
+# Make a dataframe that's just the p values, then unlist and do BH correction and cat onto og dataframe
+p_val_strengths = strengths_df[3:6]
+p_val_strengths
+
+# Combine all p-values into a single vector
+all_pvalues = unlist(p_val_strengths)
+
+# Apply BH correction to the combined p-values
+all_pvalues_corrected = p.adjust(all_pvalues, method = "BH")
+
+# Reshape the corrected p-values back into the original dataframe
+df_corrected = as.data.frame(matrix(all_pvalues_corrected, nrow = nrow(p_val_challenges), byrow = FALSE))
+colnames(df_corrected) = c("adhdp_adjusted", "ndp_adjusted", "yoep_adjusted", "pmhp_adjusted")
+
+strengths_df = cbind(strengths_df, df_corrected)
+strengths_df # Now has adjusted p_values side by side
+```
+# Strength significance differences
+```{r}
+sig1 = which(strengths_df$adhdp_adjusted < .05)
+sig1 = strengths_df$strat.name[sig1]
+sig1
+```
+
+# Challenge/Novelty Question Insight
+```{r}
+# Since the model for Q62, our favoring of challenge/novelty question, does not pass the proportional odds assumption, we can try to contextualize it with a partial proportional odds model.
+# This model creates different betas for each predictor
+
+# First, let's check exactly which predictor has let us down in the model by fitting it again and showing the results of a Brant test.
+m = polr(Q62 ~ group + yoe + pmh_avg, data = data, Hess = TRUE, na.action = na.omit)
+brant(m)
+# groupADHD has a non-proportional relationship
+
+library(VGAM)
+
+# Relax assumption for the group, i.e., neurotype, predictor.
+m = vglm(Q62 ~ group + yoe + pmh_avg,
+            family = cumulative(link = "logitlink", parallel = ~ yoe + pmh_avg),
+            data = data)
+summary(m)
+
+# It's warning city, no matter what I do -- likely because virtually no one said they weren't motivated to do novel or challenging tasks and the skew is HUGE. Humans have a need for novelty, after all.
+
+# Proof of skew:
+print(as.data.frame(table(data$Q62)))
+# That really puts the ew in "skew."
+
+# Therefore, fitting a model here is inappropriate. Let's use a substantially weaker statistic to describe the data, like median, and note in the paper that further research is needed to answer this question.
+# More objective measures would work, or subjective scales with a higher degree of granularity.
+justadhd = subset(data, group == "ADHD")
+justnd = subset(data, group == "ND non-ADHD")
+justnt = subset(data, group == "NT")
+
+adhd_vals = as.numeric(justadhd$Q62)
+nd_vals = as.numeric(justnd$Q62)
+nt_vals = as.numeric(justnt$Q62)
+
+# Note: Although I numbered everything 0-4 in the data, R insists on being 1-indexed (mistake), so using the as.numeric function turns the values to 1-5 as it interprets the ordered factor
+# That's why you can get a median of 5 here.
+
+median(adhd_vals, na.rm = TRUE)
+median(nd_vals, na.rm = TRUE)
+median(nt_vals, na.rm = TRUE)
+
+# Chi-squared test is out of the question because there are < 5 (and sometimes 0) for the count in some cells of the contingency table, but we can run a Fisher's Exact Test with simulation
+group_challenge_tb = table(data$group, data$Q62)
+group_challenge_tb
+fish_test = fisher.test(group_challenge_tb, simulate.p.value = TRUE, B = 10000)
+print(fish_test)
+# There is no simple way, as in the case of Chi-squared tests, to find the driving differences between the groups here. I would feel more comfortable reporting medians regardless, as it seems we don't have sufficient data to definitively answer this question. However, this is significant. :)
+
+```
+
+
+# Misc. Chi-Squared/Other Strengths
+```{r}
+# Best work environment: no significant difference
+env_tb = table(data$group, data$Q78)
+env_chisq = chisq.test(env_tb)
+workenv = as.data.frame(table(data$Q78))
+total = sum(workenv$Freq)
+workenv$Percentage = workenv$Freq / total
+print(workenv) # We can see most people prefer hybrid or remote
+print("Next")
+print(as.data.frame(table(data$wfh_status)))
+
+# Preferred interview type: no significant differences
+# Per interview type, see if participants of different neurotypes differ significantly in their usage using Chi-squared tests
+
+which(colnames(data) == "Q89_1")
+which(colnames(data) == "Q89_8")
+
+chisq_interviews = data.frame(character(0),
+                              numeric(0),
+                          numeric(0),
+                          numeric(0))
+colnames(chisq_interviews) = c("interview.type", "sum", "og.p.value", "adjusted.p.value")
+for (i in 96:100) {
+  likes_interview = ifelse(!is.na(data[i]), TRUE, FALSE)
+  table = table(data$group, likes_interview)
+  result = chisq.test(table)
+
+  print(colnames(data)[i])
+  print(result)
+  print(result$stdres)
+  
+  new.row = data.frame(interview.type = colnames(data)[i],
+                       sum = sum(!is.na(data[i])),
+                       og.p.value = result$p.value,
+                       adjusted.p.value = 0)
+  chisq_interviews = rbind(chisq_interviews, new.row)
+}
+og_indices = which(chisq_interviews$og.p.value < .05)
+print(og_indices)
+og_significant = chisq_interviews[og_indices, 1]
+print(og_significant)
+
+# Correcttt them
+chisq_interviews$adjusted.p.value = p.adjust(chisq_interviews$og.p.value, method = "BH")
+
+post_indices = which(chisq_interviews$adjusted.p.value < .05)
+post_significant = chisq_interviews[post_indices, 1]
+print(post_significant)
+
+chisq_interviews
+# Zilch
+```
+
+# Averaging Challenge Modeling Per SE Task (Linear Model Approximations) --> Not in paper
+```{r}
+# Create columns for average code review challenge, and so on.
+
+# Change challenges and task proficiencies to numeric variables to be consistent with the linear model and recognize that task proficiency is distributed in an interval manner.
+data[53:59] <- lapply(data[53:59], function(x) as.numeric(x))
+data[64:91] <- lapply(data[64:91], function(x) as.numeric(x))
+data[116:122] <- lapply(data[116:122], function(x) as.numeric(x))
+
+data$codereview_diff = rowMeans(data[, c("distract_1", "Q55_1", "Q73_2", "Q53_1", "Q60_1")])
+data$debug_diff = rowMeans(data[, c("distract_2", "Q55_2", "Q73_3", "Q53_2", "Q60_2")])
+data$readdoc_diff = rowMeans(data[, c("distract_3", "Q55_3", "Q73_4", "Q53_3", "Q60_3")])
+data$meetings_diff = rowMeans(data[, c("distract_4", "Q55_4", "Q53_4", "Q60_4")])
+data$design_diff = rowMeans(data[, c("distract_5", "Q55_5", "Q73_6", "Q53_5", "Q60_5")])
+data$brainstorming_diff = rowMeans(data[, c("distract_6", "Q55_6", "Q73_7", "Q53_6", "Q60_6")])
+data$writedoc_diff = rowMeans(data[, c("distract_7", "Q55_7", "Q73_8", "Q53_7", "Q60_7")])
+
+which(colnames(data) == "codereview_diff")
+which(colnames(data) == "writedoc_diff")
+which(colnames(data) == "best.tasks._1")
+print(309 - 193)
+
+p_value_list = list()
+
+for (i in 309:315) {
+  colname = colnames(data)[i]
+  # Which proficiency of task are we looking at? It should be at index i - 193
+  task_proficiency = colnames(data)[i-193]
+  print(paste("THIS IS THE TEST: ", colname))
+  formula = paste(colname, "~ group + yoe + pmh_avg + wfh_status + job_satisfaction +", task_proficiency)
+  m = lm(formula, data = data)
+  print(summary(m))
+  print(confint(m))
+  p_values = summary(m)$coefficients[, "Pr(>|t|)"]
+  p_values = p_values[2:6]
+  p_value_list = append(p_value_list, p_values)
+}
+
+p_value_list = unlist(p_value_list)
+og_indices = which(p_value_list < .05)
+og_significant = p_value_list[og_indices]
+print(og_significant)
+print(length(og_significant))
+
+# Correcttt them
+adjusted = p.adjust(p_value_list, method = "BH")
+
+post_indices = which(adjusted < .05)
+post_significant = adjusted[post_indices]
+print(post_significant)
+print(length(post_significant))
+
+# All survive except for a years of experience factor as related to reading documentation. YOE seems to have a small effect size.
+```
+

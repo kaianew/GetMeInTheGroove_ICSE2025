@@ -1,0 +1,430 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+---
+title: "ADHD Programmers Analysis -- Diagnosis Status Split"
+output: html_notebook
+author: "A1"
+date: "2024-07-16"
+---
+
+```{r}
+source("standard_cleaning.R")
+nrow(data)
+
+# Drop Q73_5 -- it was not answered by anyone
+data = subset(data, select = -Q73_5)
+
+# Make task competency be numeric
+data[116:122] = lapply(data[116:122], function(x) as.numeric(x))
+```
+
+# Change group to respect the analysis we're doing (checking AuDHD differences)
+```{r}
+# Now want four levels of group: ADHD, AuDHD, non-ADHD ND, NT
+# ifelse(test, yes, no) --> can be nested
+data[23] # Q3_4 is Autism
+data$group = ifelse(data$HasADHD, ifelse(is.na(data$Q3_4), "ADHD", "AuDHD"), ifelse(data$OtherND, "ND non-ADHD", "NT"))
+data$group = factor(data$group)
+data$group
+```
+
+# Change levels of group so we're comparing to NT people
+```{r}
+tmp = subset(data, data$group == "ADHD")
+tmp2 = subset(data, data$group == "NT")
+
+mean(as.numeric(tmp$distract_1), na.rm = T)
+mean(as.numeric(tmp2$distract_1), na.rm = T)
+
+levels(data$group)
+
+data$group = relevel(data$group, ref = "NT")
+levels(data$group)
+
+tmp = subset(data, data$group == "ADHD")
+tmp2 = subset(data, data$group == "NT")
+
+mean(as.numeric(tmp$distract_1), na.rm = T)
+mean(as.numeric(tmp2$distract_1), na.rm = T)
+```
+# Local definition of polr row function
+```{r}
+m = polr(distract_1 ~ group + yoe + pmh_avg, data = data, Hess = TRUE, na.action = na.omit)
+summary(m)
+
+# From this, we see ADHD_diag is the first factor, then ADHD_notdiag. Hopefully defining the function in local scope overrides, but with R, you never know.
+
+add_polr_row = function(curr_data, df, i, task_competency) {
+  colname = colnames(curr_data)[i]
+  print(paste("THIS IS THE TEST: ", colname))
+  curr_data[[i]] = ordered(curr_data[[i]])
+  
+  # Make formula into string using paste
+  # Simplest model
+  formula = ""
+  if (is.null(task_competency)) {
+    formula = paste(colname, "~ group + yoe + pmh_avg + wfh_status")
+  }
+  else {
+    formula = paste(colname, "~ group + yoe + pmh_avg + wfh_status +", task_competency)
+  }
+  
+  print(formula)
+  
+  m = polr(formula, data = data, Hess = TRUE, na.action = na.omit)
+  
+  # Check prop odds assumption
+  br = brant(m)
+  omnibus = br[1, 3]
+  
+  # Check to see if the polr model is appropriate and keep that as data in the dataframe
+  brant_pass = omnibus > .05
+  
+  # Extract z-values from the summary
+  summary_polr = summary(m)
+  z_values = summary_polr$coefficients[, "t value"]
+  
+  # Calculate p-values
+  p_values = 2 * pnorm(-abs(z_values))
+  if (is.null(task_competency)) {
+    p_values = p_values[1:7]
+  }
+  else {
+    p_values = p_values[1:8]
+  }
+  
+  print(confint(m))
+  new.row = data.frame()
+  
+  # Extract coefficients
+  coefficients = coef(m)
+  
+  # Calculate odds ratios for each coefficient -- basically an effect size for how much sway each predictor has on the response variable. Increase by 1, or from reference value, increases the likelihood of increasing the response
+  # variable by one level by [odds ratio] times
+  odds_ratios = exp(coefficients)
+  
+  if (is.null(task_competency)) {
+    new.row = data.frame(challenge = colname,
+                         can_use = brant_pass,
+                         adhdp = p_values[1],
+                         audhdp = p_values[2],
+                         ndp = p_values[3],
+                         yoep = p_values[4],
+                         pmhp = p_values[5],
+                         hybridp = p_values[6],
+                         wfhp = p_values[7])
+  }
+  
+  else {
+  new.row = data.frame(challenge = colname,
+                         can_use = brant_pass,
+                         adhdp = p_values[1],
+                         audhdp = p_values[2],
+                         ndp = p_values[3],
+                         yoep = p_values[4],
+                         pmhp = p_values[5],
+                         hybridp = p_values[6],
+                         wfhp = p_values[7],
+                        compp = p_values[8])
+  }
+  odds_ratio_df = as.data.frame(t(odds_ratios))
+  if (is.null(task_competency)) {
+    colnames(odds_ratio_df) = c("coef_adhd", "coef_audhd", "coef_nd", "coef_yoe", "coef_pmh", "coef_hybrid", "coef_wfh")
+  }
+  else {
+    colnames(odds_ratio_df) = c("coef_adhd", "coef_audhd", "coef_nd", "coef_yoe", "coef_pmh", "coef_hybrid", "coef_wfh", "coef_comp")
+  }
+  new.row = cbind(new.row, odds_ratio_df)
+  df = rbind(df, new.row)
+  return(df)
+}
+```
+
+
+# Challenge Modeling By Software Task
+```{r}
+# Factors to put in polr formula: competency at task, group, yoe, pmh, wfh_status
+
+challenges_df = data.frame(challenge = character(),
+                           can_use = logical(),
+                           adhdp = numeric(),
+                           audhdp = numeric(),
+                           ndp = numeric(),
+                           yoep = numeric(),
+                           pmhp = numeric(),
+                           hybridp = numeric(),
+                           wfhp = numeric(),
+                           compp = numeric(),
+                           coef_adhd = numeric(),
+                           coef_audhd = numeric(),
+                           coef_nd = numeric(),
+                           coef_yoe = numeric(),
+                           coef_pmh = numeric(),
+                           coef_hybrid = numeric(),
+                           coef_wfh = numeric(),
+                           coef_comp = numeric())
+
+comp_i = 116 # This is the index of best.tasks._1, or perceived competency at code review.
+
+for (i in 53:59) {
+  # Add task competency as a predictor to the formula by passing it into the function
+  task_competency = colnames(data)[comp_i]
+  challenges_df = add_polr_row(data, challenges_df, i, task_competency)
+  comp_i = comp_i + 1
+}
+
+comp_i = 116
+
+for (i in 64:70) {
+  task_competency = colnames(data)[comp_i]
+  challenges_df = add_polr_row(data, challenges_df, i, task_competency)
+  comp_i = comp_i + 1
+}
+
+# Skip an index for best.tasks._4 -- 119 -- because that is meetings, which we don't ask about when it comes to "having trouble starting or continuing tasks" because it didn't make sense.
+
+comp_i = 116
+
+for (i in 72:77) {
+  task_competency = colnames(data)[comp_i]
+  challenges_df = add_polr_row(data, challenges_df, i, task_competency)
+  if (comp_i == 118) {
+    comp_i = comp_i +2
+    next
+  }
+  comp_i = comp_i + 1
+}
+
+comp_i = 116
+
+for (i in 78:91) {
+  task_competency = colnames(data)[comp_i]
+  challenges_df = add_polr_row(data, challenges_df, i, task_competency)
+  if (comp_i == 122) {
+    comp_i = 116
+    next
+  }
+  comp_i = comp_i + 1
+}
+
+challenges_df
+
+# Make a dataframe that's just the p values, then unlist and do BH correction and cat onto og dataframe
+p_val_challenges = challenges_df[3:10]
+p_val_challenges
+
+# Combine all p-values into a single vector
+all_pvalues = unlist(p_val_challenges)
+
+# Apply BH correction to the combined p-values
+all_pvalues_corrected = p.adjust(all_pvalues, method = "BH")
+
+# Reshape the corrected p-values back into the original dataframe
+df_corrected = as.data.frame(matrix(all_pvalues_corrected, nrow = nrow(p_val_challenges), byrow = FALSE))
+colnames(df_corrected) = c("adhdp_adjusted", "audhdp_adjusted", "ndp_adjusted", "yoep_adjusted", "pmhp_adjusted", "hybridp_adjusted", "wfhp_adjusted", "compp_adjusted")
+
+challenges_df = cbind(challenges_df, df_corrected)
+challenges_df # Now has adjusted p_values side by side
+
+```
+
+# Look at the differences in significant challenges between the diagnostic groups
+```{r}
+sig1 = which(challenges_df$adhdp_adjusted < .05)
+sig2 = which(challenges_df$audhdp_adjusted < .05)
+sig1 = challenges_df$challenge[sig1]
+sig1
+sig2 = challenges_df$challenge[sig2]
+sig2
+
+# These are the list of challenges that were significant in the original Rmd
+# "distract_1" "distract_3" "distract_4" "distract_5" "distract_6" "distract_7" "Q55_1"      "Q55_2"      "Q55_3"      "Q55_4"      "Q55_5"      "Q55_6"      "Q55_7"      "Q73_2"      "Q73_3"      "Q73_4"     
+# "Q73_7"      "Q73_8"      "Q53_1"      "Q53_2"      "Q53_3"      "Q53_4"      "Q53_5"      "Q53_6"      "Q53_7"      "Q60_1"      "Q60_3"      "Q60_4"      "Q60_5"      "Q60_6"      "Q60_7"
+
+# These are the AuDHD group
+# "distract_1" "distract_3" "distract_4" "distract_5" "distract_6" "distract_7" "Q55_1"      "Q55_2"      "Q55_3"      "Q55_4"      "Q55_5"      "Q55_6"      "Q55_7"      "Q73_2"      "Q73_4"      "Q73_7"     
+# "Q73_8"      "Q53_1"      "Q53_2"      "Q53_3"      "Q53_4"      "Q53_5"      "Q53_6"      "Q53_7"      "Q60_1"      "Q60_4"      "Q60_5"      "Q60_6"      "Q60_7"
+
+# AuDHD missing "Q73_3", "Q60_3"
+```
+
+
+# Other Broad Challenge Questions
+```{r}
+# Go through last few challenges questions. Q56 and 57 are context switching and communication. 58 is ease of development environment. 89 is preferred interview types (chi square test). 91 is standup effects. 92 is pair programming effects. 94 is waiting for things, 95 is version control ease (git ease). 
+
+challenges_broad_df = data.frame(challenge = character(),
+                           can_use = logical(),
+                           adhddiagp = numeric(),
+                           audhnondiagp = numeric(),
+                           ndp = numeric(),
+                           yoep = numeric(),
+                           pmhp = numeric(),
+                           hybridp = numeric(),
+                           wfhp = numeric(),
+                           compp = numeric(),
+                           coef_adhddiag = numeric(),
+                           coef_adhdnondiag = numeric(),
+                           coef_nd = numeric(),
+                           coef_yoe = numeric(),
+                           coef_pmh = numeric(),
+                           coef_hybrid = numeric(),
+                           coef_wfh = numeric())
+
+which(colnames(data) == "context_switching")
+which(colnames(data) == "Q58")
+which(colnames(data) == "Q91_1")
+which(colnames(data) == "Q92_1")
+which(colnames(data) == "wait_compile")
+
+# Context switching
+challenges_broad_df = add_polr_row(data, challenges_broad_df, 92, NULL)
+# Communication
+challenges_broad_df = add_polr_row(data, challenges_broad_df, 93, NULL)
+# Ease of development environment
+challenges_broad_df = add_polr_row(data, challenges_broad_df, 95, NULL)
+
+# Effects of standup on productivity, quality, and wellbeing
+for (i in 103:105) {
+  challenges_broad_df = add_polr_row(data, challenges_broad_df, i, NULL)
+}
+
+# Effects of pair programming on productivity, quality, and wellbeing
+for (i in 107:109) {
+  challenges_broad_df = add_polr_row(data, challenges_broad_df, i, NULL)
+}
+
+# Waiting for things to compile
+challenges_broad_df = add_polr_row(data, challenges_broad_df, 110, NULL)
+# Ease with version control
+challenges_broad_df = add_polr_row(data, challenges_broad_df, 111, NULL)
+
+# Make a dataframe that's just the p values, then unlist and do BH correction and cat onto og dataframe
+p_val_challenges = challenges_broad_df[3:9]
+p_val_challenges
+
+# Combine all p-values into a single vector
+all_pvalues = unlist(p_val_challenges)
+
+# Apply BH correction to the combined p-values
+all_pvalues_corrected = p.adjust(all_pvalues, method = "BH")
+
+# Reshape the corrected p-values back into the original dataframe
+df_corrected = as.data.frame(matrix(all_pvalues_corrected, nrow = nrow(p_val_challenges), byrow = FALSE))
+colnames(df_corrected) = c("adhddiagp_adjusted", "adhdnondiagp_adjusted", "ndp_adjusted", "yoep_adjusted", "pmhp_adjusted", "hybridp_adjusted", "wfhp_adjusted")
+
+challenges_broad_df = cbind(challenges_broad_df, df_corrected)
+challenges_broad_df # Now has adjusted p_values side by side
+
+```
+# Broad challenges significance differences
+```{r}
+sig1 = which(challenges_broad_df$adhddiagp_adjusted < .05)
+sig2 = which(challenges_broad_df$adhdnondiagp_adjusted < .05)
+sig1 = challenges_broad_df$challenge[sig1]
+sig1
+sig2 = challenges_broad_df$challenge[sig2]
+sig2
+
+# In main notebook, "context_switching" "Q57" were significant
+# Q91_2/3 is wellbeing and work quality based on standup, which are not in the paper
+```
+
+# Strength Modeling
+```{r}
+# Factors that could reasonably affect strengths: yoe, group, pmh (self efficacy)
+strengths_df = data.frame(strat.name = character(),
+                           can_use = logical(),
+                           adhdp = numeric(),
+                           audhdp = numeric(),
+                           ndp = numeric(),
+                           yoep = numeric(),
+                           pmhp = numeric(),
+                           coef_adhd = numeric(),
+                           coef_audhd = numeric(),
+                           coef_nd = numeric(),
+                           coef_yoe = numeric(),
+                           coef_pmh = numeric())
+
+for (i in 116:126) {
+  colname = colnames(data)[i]
+  print(paste("THIS IS THE TEST: ", colname))
+  data[[i]] = ordered(data[[i]])
+  levels(data[[i]])
+  # Make formula into string using paste
+  # Simplest model
+  formula = paste(colname, "~ group + yoe + pmh_avg")
+  m = polr(formula, data = data, Hess = TRUE, na.action = na.omit)
+  
+  # Extract coefficients
+  coefficients = coef(m)
+  
+  # Calculate odds ratios for each coefficient -- basically an effect size for how much sway each predictor has on the response variable. Increase by 1, or from reference value, indicates the likelihood of increasing the response
+  # variable by one level by [odds ratio] times (> 1 value means more likely to be higher, < 1 equals more likely to be lower on the scale)
+  odds_ratios = exp(coefficients)
+  odds_ratio_df = as.data.frame(t(odds_ratios))
+  colnames(odds_ratio_df) = c("coef_adhd", "coef_audhd", "coef_nd", "coef_yoe", "coef_pmh")
+  
+  # Check prop odds assumption
+  br = brant(m)
+  summary(br)
+  
+  omnibus = br[1, 3]
+  
+  # Check to see if the polr model is appropriate and keep that as data in the dataframe
+  brant_pass = omnibus > .05
+
+  # Extract z-values from the summary
+  summary_polr = summary(m)
+  z_values = summary_polr$coefficients[, "t value"]
+
+  # Calculate p-values
+  p_values = 2 * pnorm(-abs(z_values))
+  p_values = p_values[1:5]
+  print(p_values)
+  print(confint(m))
+  new.row = data.frame(strat.name = colname,
+                       can_use = brant_pass,
+                       adhdp = p_values[1],
+                       audhdp = p_values[2],
+                       ndp = p_values[3],
+                       yoep = p_values[4],
+                       pmhp = p_values[5])
+  new.row = cbind(new.row, odds_ratio_df)
+  strengths_df = rbind(strengths_df, new.row)
+}
+
+# Make a dataframe that's just the p values, then unlist and do BH correction and cat onto og dataframe
+p_val_strengths = strengths_df[3:7]
+# p_val_strengths
+
+# Combine all p-values into a single vector
+all_pvalues = unlist(p_val_strengths)
+
+# Apply BH correction to the combined p-values
+all_pvalues_corrected = p.adjust(all_pvalues, method = "BH")
+
+# Reshape the corrected p-values back into the original dataframe
+df_corrected = as.data.frame(matrix(all_pvalues_corrected, nrow = nrow(p_val_challenges), byrow = FALSE))
+colnames(df_corrected) = c("adhdp_adjusted", "audhdp_adjusted", "ndp_adjusted", "yoep_adjusted", "pmhp_adjusted")
+
+strengths_df = cbind(strengths_df, df_corrected)
+# strengths_df # Now has adjusted p_values side by side
+```
+# Strength significance differences
+```{r}
+sig1 = which(strengths_df$adhdp_adjusted < .05)
+sig2 = which(strengths_df$audhdp_adjusted < .05)
+sig1 = strengths_df$strat.name[sig1]
+sig1
+sig2 = strengths_df$strat.name[sig2]
+sig2
+
+# In the main analysis, "best.tasks._2" "best.tasks._6" "Q62"           "Q63"           "Q64"           "hyperfocus" were significant
+# For AuDHD: consider selves worse at meetings, better at design
+# Debugging DOES disappear. Additionally, writing documentation is significantly worse
+```
+
