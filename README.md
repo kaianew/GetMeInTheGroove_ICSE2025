@@ -5,12 +5,12 @@ Repository for "Get Me In The Groove: A Mixed Methods Study on Supporting ADHD P
 Understanding the work styles of diverse programmers can help build inclusive workplaces, enabling all software engineers to excel. An estimated 10.6% of programmers have *Attention Deficit Hyperactivity Disorder* (ADHD), a condition characterized by differences in attention and working memory. Prior work has just begun to explore the impact of ADHD on software development, finding that inadequate support may negatively impact team productivity and employment. This prevents software organizations from benefiting from ADHD-related strengths. To investigate these impacts, we conducted a two-phase mixed methods study. First, we qualitatively analyzed 99 threads (1,658 posts and comments) from r/ADHD_Programmers, the largest public forum dedicated to the ADHD programmer community. We constructed a mapping that reveals how ADHD programmers apply personal strategies and organizational accommodations to address software task-specific challenges. Second, we conducted a large-scale survey of 239 ADHD and 254 non-ADHD professional programmers to validate how our qualitative data generalize to the worldwide developer population. Our results show that ADHD programmers are 1.8 to 4.4 times more likely to struggle more frequently than neurotypical developers with all challenges we consider, but especially with time management and design. Our findings have implications for inclusive and effective tool- and policy-building in software workplaces and motivate further research into the experiences of ADHD programmers.
 
 # Replication Package Contents
-  -- Qualitative Analysis and Data
-    Contains: A Data folder with all 99 threads we analyzed, our final codebook, and a spreadsheet indicating who did which passes in our three-pass thematic analysis (anonymized).
-  -- Quantitative Analysis and Data
-    Contains: Our survey instrument, standard_cleaning.R, for consistency checks and to clean data, and Rmd and knitted HTML files showing analysis results. Our main analysis script is in main_analysis.Rmd; we additionally did three other separate analyses to look at differences between other groups, including splitting on medication status for ADHD developers, developers with autism and ADHD, and diagnostic status for ADHD developers.
-  -- Scraping Scripts
-    Contains: Scripts we used to scrape and format Reddit posts and to look for public GitHub emails for survey recruitment.
+- Qualitative Analysis and Data
+  - Contains: A Data folder with all 99 threads we analyzed, our final codebook, and a spreadsheet indicating who did which passes in our three-pass thematic analysis (anonymized).
+- Quantitative Analysis and Data
+  - Contains: Our survey instrument, standard_cleaning.R, for consistency checks and to clean data, and Rmd and knitted HTML files showing analysis results. Our main analysis script is in main_analysis.Rmd; we additionally did three other separate analyses to look at differences between other groups, including splitting on medication status for ADHD developers, developers with autism and ADHD, and diagnostic status for ADHD developers.
+- Scraping Scripts
+  - Contains: Scripts we used to scrape and format Reddit posts and to look for public GitHub emails for survey recruitment.
     
 # Step-by-step Guidance for Replication
 1. In the Scraping Scripts folder: Run reddit_scraper.ipynb with your own client ID and secret keys. 
