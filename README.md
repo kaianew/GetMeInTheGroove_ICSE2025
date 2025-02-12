@@ -6,7 +6,7 @@ Understanding the work styles of diverse programmers can help build inclusive wo
 
 # Replication Package Contents
 - Qualitative Analysis and Data
-  - Contains: A Data folder with all 99 threads we analyzed, our final codebook, and a spreadsheet indicating who did which passes in our three-pass thematic analysis (anonymized).
+  - Contains: Our final codebook, a spreadsheet indicating who did which passes in our three-pass thematic analysis (anonymized), and empty spreadsheets for intial post categorization replication.
 - Quantitative Analysis and Data
   - Contains: Our survey instrument, standard_cleaning.R, for consistency checks and to clean data, and Rmd and knitted HTML files showing analysis results. Our main analysis script is in main_analysis.Rmd; we additionally did three other separate analyses to look at differences between other groups, including splitting on medication status for ADHD developers, developers with autism and ADHD, and diagnostic status for ADHD developers.
 - Scraping Scripts
